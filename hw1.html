@@ -44,6 +44,7 @@ function main()
 	// Write the positions of vertices to a vertex shader
 	var square = initSquareBuffers(gl);
 	var triangle = initTriangleBuffers(gl);
+	var gradSquare = initgradSquareBuffers(gl);
 	var ANGLE = 0.0;
 	// Specify the color for clearing canvas
 	gl.clearColor(.8, .8, .8, 1);
@@ -51,26 +52,17 @@ function main()
 	//handles matrix mulitplication
 	var triangleMatrix = new Matrix4();
 	var squareMatrix = new Matrix4(); 
+	var gradSquareMatrix = new Matrix4();
 	//passes matrix to vertex shader
 	var u_ModelMatrix = gl.getUniformLocation(gl.program, 'u_ModelMatrix');
 	var u_Flag = gl.getUniformLocation(gl.program, 'u_Flag');
+	var ANGLE = 0.0;
 	var tick = function() 
 	{	
 		gl.clear(gl.COLOR_BUFFER_BIT);
-		
 
-		//pass modelMatrix data to shader
-		gl.bindBuffer(gl.ARRAY_BUFFER, triangle.buffer); // get data from triangle buffer
-		gl.enableVertexAttribArray(a_Color);
-		gl.vertexAttribPointer(a_Position, 2, gl.FLOAT, false, 20, 0);
-		gl.vertexAttribPointer(a_Color, 3, gl.FLOAT, false, 20, 8);
-    		gl.uniform1i(u_Flag, true);
-		triangleMatrix.setTranslate(0.25, 0.5, 0.0);
-		triangleMatrix.scale(0.5,0.5,1);
-		gl.uniformMatrix4fv(u_ModelMatrix, false, triangleMatrix.elements);
-		gl.drawArrays(gl.TRIANGLES, 0, triangle.n);
-		
-		gl.bindBuffer(gl.ARRAY_BUFFER, square.buffer); //switch from triangle buffer to square buffer
+		//overlapping squares
+		gl.bindBuffer(gl.ARRAY_BUFFER, square.buffer); //get data from square buffer 
 		gl.vertexAttribPointer(a_Position, 2, gl.FLOAT, false, 20, 0);
 		gl.vertexAttribPointer(a_Color, 3, gl.FLOAT, false, 20, 8);
 		var size = 1.0;
@@ -95,9 +87,63 @@ function main()
 			gl.drawArrays(gl.TRIANGLE_FAN,0,square.n); 
 			size -= 0.18;
 		}
-		requestAnimationFrame(tick, canvas);
+
+		//gradient triangle
+		gl.bindBuffer(gl.ARRAY_BUFFER, triangle.buffer); // get data from triangle buffer
+		gl.enableVertexAttribArray(a_Color);
+		gl.vertexAttribPointer(a_Position, 2, gl.FLOAT, false, 20, 0);
+		gl.vertexAttribPointer(a_Color, 3, gl.FLOAT, false, 20, 8);
+    		gl.uniform1i(u_Flag, true);
+		triangleMatrix.setTranslate(0.5, 0.5, 0.0);
+		triangleMatrix.scale(0.5,0.5,1);
+		triangleMatrix.rotate(ANGLE,0,0,1);
+		gl.uniformMatrix4fv(u_ModelMatrix, false, triangleMatrix.elements);
+		gl.drawArrays(gl.TRIANGLES, 0, triangle.n);
+	
+		//gradient square
+		gl.bindBuffer(gl.ARRAY_BUFFER, gradSquare.buffer); //get data from gradient buffer
+		gl.enableVertexAttribArray(a_Color);
+		gl.vertexAttribPointer(a_Position, 2, gl.FLOAT, false, 20, 0);
+		gl.vertexAttribPointer(a_Color,    3, gl.FLOAT, false, 20, 8);
+		gl.enableVertexAttribArray(a_Color);  
+		gl.uniform1i(u_Flag, true);           
+		gradSquareMatrix.setTranslate(-0.5, 0.5, 0.0);
+		gradSquareMatrix.scale(0.5, 0.5, 1);
+		gradSquareMatrix.rotate(ANGLE,0,0,1);
+		gl.uniformMatrix4fv(u_ModelMatrix, false, gradSquareMatrix.elements);
+		gl.drawArrays(gl.TRIANGLE_FAN, 0, gradSquare.n);
+
 	};
 	tick();
+
+	function rotateLeft()
+	{
+	 	ANGLE += 1
+		tick();
+	}
+
+	function rotateRight()
+	{
+	 	ANGLE -= 1 
+		tick();
+	}
+
+	document.getElementById('leftButton').addEventListener('click', rotateLeft);
+  	document.getElementById('rightButton').addEventListener('click', rotateRight);
+
+  	document.addEventListener('keydown', function (event) 
+	{
+    		if (event.key === 'ArrowLeft') 
+		{
+			rotateLeft();
+		}
+    		else if (event.key === 'ArrowRight') 
+		{	
+			rotateRight();
+		}
+  	});
+
+
 }
 
 var a_Position;
@@ -170,6 +216,38 @@ function initSquareBuffers(gl) {
   return {buffer: vertexColorBuffer, n:n};
 }
 
+function initgradSquareBuffers(gl) {
+  var verticesColors = new Float32Array([
+    -0.5,  0.5,  1.0, 0.0, 0.0,  
+     0.5,  0.5,  0.0, 1.0, 0.0,  
+     0.5, -0.5,  0.0, 0.0, 1.0,   
+    -0.5, -0.5,  1.0, 1.0, 1.0  
+  ]);
+  var n = 4; // The number of vertices
+
+  // Create buffer object and bind the buffer object to target
+  var vertexColorBuffer = gl.createBuffer(); 
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexColorBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, verticesColors, gl.STATIC_DRAW); 
+   
+  var FSIZE = verticesColors.BYTES_PER_ELEMENT;
+
+  //Get storage location of a_Position and send vertex buffers to it, and enable.
+  a_Position = gl.getAttribLocation(gl.program, 'a_Position');
+  gl.vertexAttribPointer(a_Position, 2, gl.FLOAT, false, FSIZE * 5, 0);
+  gl.enableVertexAttribArray(a_Position);
+
+  // Get the storage location of a_Color, assign buffer and enable
+  a_Color = gl.getAttribLocation(gl.program, 'a_Color');
+  gl.vertexAttribPointer(a_Color, 3, gl.FLOAT, false, FSIZE * 5, FSIZE * 2);
+  gl.enableVertexAttribArray(a_Color);
+
+  // Unbind the buffer object
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+
+  return {buffer: vertexColorBuffer, n:n};
+}
 </script>
 
 </head>
@@ -183,7 +261,8 @@ function initSquareBuffers(gl) {
 
 <!-- Pressing this button calls function action()" in the
 Javascript of the script tag. -->
-<button type="button" onclick="action()">Button</button>
+<button type="button" id="leftButton">Left</button>
+<button type="button" id="rightButton">Right</button>
 
 </body>
 </html>
