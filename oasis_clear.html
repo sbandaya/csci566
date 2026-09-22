@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>Title</title>
+
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/webgl-utils.js"></script>
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/webgl-debug.js"></script>
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/cuon-matrix.js"></script>
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/cuon-utils.js"></script>
+
+<script> 
+var VSHADER_SOURCE =
+  `attribute vec4 a_Position; 
+  attribute vec4 a_Color; 
+  uniform mat4 u_ModelMatrix; 
+  uniform mat4 u_ViewMatrix; 
+  uniform mat4 u_ProjMatrix; 
+  varying vec4 v_Position; 
+  varying vec4 v_Color; 
+  void main() { 
+    gl_Position = u_ProjMatrix * u_ViewMatrix * u_ModelMatrix * a_Position; 
+   v_Position = a_Position;
+    v_Color = a_Color;
+  }`
+
+var FSHADER_SOURCE =
+  `precision mediump float;
+  varying vec4 v_Position;
+  varying vec4 v_Color;
+  uniform float u_Time;
+  uniform float u_Alpha;
+  uniform bool u_SandFlag;
+   vec3 permute(vec3 x){ 
+    return mod(((x*34.0)+1.0)*x, 289.0); 
+  } 
+
+  vec3 taylorInvSqrt(vec3 r){ 
+    return 1.79284291400159 - 0.85373472095314 * r; 
+  } 
+
+  float noise(vec2 P){ 
+    const vec2 C = vec2(0.21132486540518713, 0.36602540378443859); 
+    vec2 i = floor(P + dot(P, C.yy) );
+    vec2 x0 = P - i + dot(i, C.xx);  
+    vec2 i1;  
+    i1.x = step( x0.y, x0.x );  
+    i1.y = 1.0 - i1.x;  
+    vec4 x12 = x0.xyxy +  vec4( C.xx, C.xx * 2.0 - 1.0);  
+    x12.xy -= i1;  
+    i = mod(i, 289.0);  
+    vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ));  
+    vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), 0.0);  
+    m = m*m;  
+    m = m*m;  
+    vec3 x = fract(p*(1.0/41.0)) * 2.0 - 1.0;  
+    vec3 gy = abs(x)-0.5;  
+    vec3 ox = floor(x + 0.5);  
+    vec3 gx = x - ox;  
+    m *= taylorInvSqrt( gx*gx + gy*gy );  
+    vec3 g;  
+    g.x = gx.x * x0.x + gy.x * x0.y;  
+    g.yz = gx.yz * x12.xz + gy.yz * x12.yw;  
+    return 130.0 * dot(m, g);  
+  }  
+
+  float turb(float cx, float cy){  
+     return .5 * noise(vec2(cx,cy)) + .25 
+         * noise(vec2(2.0*cx,2.0*cy)) + .125 
+         * noise(vec2(4.0*cx,4.0*cy));  
+  }
+  void main() {
+    if(u_SandFlag)
+    {
+        float cx = v_Position.x;
+        float cy = v_Position.y;
+        float m = (1.0 + sin((cx + turb(cx,cy) * 2.0) * 5.0)) * .5;
+        float n = noise(vec2(cx*200.0,cy*200.0)); 
+        m = (m + n) * .1;
+        gl_FragColor = vec4(.9+m,.8*.9+m,.5*.9+m, 1.0);
+    }
+    else
+    {                      
+      gl_FragColor = vec4(pow(sin(length(v_Position.xy) * 20.0 - u_Time),0.5)*u_Alpha); 
+    }
+
+  }`;
+
+
+function main() {
+  // Set up canvas, WebGL, and shaders.
+  var canvas = document.getElementById('webgl');
+  var gl = getWebGLContext(canvas);
+  initShaders(gl, VSHADER_SOURCE, FSHADER_SOURCE);
+  gl.clearColor(0, 0, 0.4, 1);
+
+  //Additional features of WebGL
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.BLEND);
+  // Set blend function
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+
+  // Set up Vertex Buffer
+  var n = initPlane(gl);
+
+  var TIME = 0;
+  //Matrices
+  var modelMatrix = new Matrix4();
+  var viewMatrix = new Matrix4();
+  var projMatrix = new Matrix4();
+  var u_ModelMatrix = gl.getUniformLocation(gl.program,'u_ModelMatrix');
+  var u_ViewMatrix = gl.getUniformLocation(gl.program,'u_ViewMatrix');
+  var u_ProjMatrix = gl.getUniformLocation(gl.program,'u_ProjMatrix');
+  var u_SandFlag = gl.getUniformLocation(gl.program, 'u_SandFlag')
+  //Get time variable in shader.
+  var u_Time = gl.getUniformLocation(gl.program, 'u_Time');
+  gl.uniform1f(u_Time, 1.0);
+
+  //Alpha flag
+  var u_Alpha = gl.getUniformLocation(gl.program, 'u_Alpha');
+
+  var tick = function(){
+
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    //Time
+    TIME += .1;
+    gl.uniform1f(u_Time,TIME)
+
+    //Camera        //Eye x  y   z ,At x y z,Up x y z
+    viewMatrix.setLookAt(x_shift, 2, z_shift,   0,0,0,   0,2,0);
+    gl.uniformMatrix4fv(u_ViewMatrix,false,viewMatrix.elements);
+
+    //Specify the viewing volume
+    //projMatrix.setOrtho(-1.0,1.0,-1.0,1.0, -1.0,9.0);
+    projMatrix.setPerspective(30,canvas.width/canvas.height,1,100);
+    gl.uniformMatrix4fv(u_ProjMatrix, false, projMatrix.elements);
+
+    //Draw quad (bottom)
+    gl.uniform1f(u_Alpha, 1); //Above 1.0 due to -v_Pos.x in shader
+    modelMatrix.setTranslate(0,-0.5,0);
+    modelMatrix.scale(2.0,2.0,2.0);
+    modelMatrix.rotate(90,1,0,0);
+    gl.uniform1i(u_SandFlag,true);
+    gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, n);
+
+    //Draw quad (top)
+    gl.uniform1f(u_Alpha, 0.5);
+    modelMatrix.setScale(1.2,1.2,1.0);
+    gl.uniform1i(u_SandFlag,false);
+    gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, n);
+
+    requestAnimationFrame(tick, canvas);
+  };
+  tick();
+}
+
+
+function initPlane(gl) {
+
+  var vertices = new Float32Array([
+    // Vertex coordinates
+    -.5,  .5,  0,
+    -.5, -.5,  0,
+     .5,  .5,  0,
+     .5, -.5,  0
+  ]);
+
+  var colors = new Float32Array([
+   // R, G, B, A,
+      1, 0, 0, 1,
+      0, 1, 0, 1,
+      0, 0, 1, 1,
+      1, 1, 1, 1
+  ]);
+  var n = 4; //Quad
+
+  // Create a buffer objects
+  initArrayBuffer(gl, 'a_Position', vertices, 3);
+  initArrayBuffer(gl, 'a_Color', colors, 4);
+
+  // Unbind the buffer object
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+  return n;
+}
+
+// Handle buffer object creation and enable in shader.
+function initArrayBuffer(gl, attribute, data, num) {
+  var buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+  var a_attribute = gl.getAttribLocation(gl.program, attribute);
+  gl.vertexAttribPointer(a_attribute, num, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(a_attribute);
+}
+
+//Button operations
+var z_shift = 4;
+function forward(){ 
+ z_shift  -= .5;
+}
+
+function back(){
+  z_shift += .5;
+}
+
+var x_shift = 0;
+function left(){
+  x_shift -= .5;
+}
+
+function right(){
+   x_shift += .5;
+}
+
+document.addEventListener('keydown', function (event) 
+{
+  if(event.key === 'ArrowLeft') 
+  {
+    left();
+  }
+  else if(event.key === 'ArrowRight') 
+  {	
+    right();
+  }
+  else if(event.key === 'ArrowDown') 
+  {	
+    back();
+  }
+  else if(event.key === 'ArrowUp') 
+  {	
+    forward();
+  }
+  });
+
+
+
+</script>
+
+</head>
+
+<!-- When page loads, call main() in Javascript. -->
+<body onload="main();">
+
+<!-- The Window that displays graphics. -->
+<canvas id="webgl" width="400" height="400"></canvas>
+<br> <!-- Newline -->
+
+<!-- Pressing this button calls function action()" in the
+Javascript of the script tag. -->
+<button type="button" onclick="forward()">forward</button>
+<button type="button" onclick="back()">back</button>
+<button type="button" onclick="left()">left</button>
+<button type="button" onclick="right()">right</button>
+</body>
+</html>

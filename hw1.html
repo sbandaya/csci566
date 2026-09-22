@@ -42,9 +42,6 @@ function main()
 	initShaders(gl, VSHADER_SOURCE, FSHADER_SOURCE);
 
 	// Write the positions of vertices to a vertex shader
-	var square = initSquareBuffers(gl);
-	var triangle = initTriangleBuffers(gl);
-	var gradSquare = initgradSquareBuffers(gl);
 	var ANGLE = 0.0;
 	// Specify the color for clearing canvas
 	gl.clearColor(.8, .8, .8, 1);
@@ -57,14 +54,13 @@ function main()
 	var u_ModelMatrix = gl.getUniformLocation(gl.program, 'u_ModelMatrix');
 	var u_Flag = gl.getUniformLocation(gl.program, 'u_Flag');
 	var ANGLE = 0.0;
+
 	var tick = function() 
 	{	
 		gl.clear(gl.COLOR_BUFFER_BIT);
 
 		//overlapping squares
-		gl.bindBuffer(gl.ARRAY_BUFFER, square.buffer); //get data from square buffer 
-		gl.vertexAttribPointer(a_Position, 2, gl.FLOAT, false, 20, 0);
-		gl.vertexAttribPointer(a_Color, 3, gl.FLOAT, false, 20, 8);
+		var square = initSquareBuffers(gl);
 		var size = 1.0;
 		for(var i = 0 ; i < 5 ; i++)
 		{
@@ -84,34 +80,29 @@ function main()
 			squareMatrix.scale(size,size,1)
 			squareMatrix.rotate(ANGLE, 0, 0, 1);
 			gl.uniformMatrix4fv(u_ModelMatrix, false, squareMatrix.elements);
-			gl.drawArrays(gl.TRIANGLE_FAN,0,square.n); 
+			gl.drawArrays(gl.TRIANGLE_FAN,0,square); 
 			size -= 0.18;
 		}
 
 		//gradient triangle
-		gl.bindBuffer(gl.ARRAY_BUFFER, triangle.buffer); // get data from triangle buffer
+		var triangle = initTriangleBuffers(gl);
 		gl.enableVertexAttribArray(a_Color);
-		gl.vertexAttribPointer(a_Position, 2, gl.FLOAT, false, 20, 0);
-		gl.vertexAttribPointer(a_Color, 3, gl.FLOAT, false, 20, 8);
     		gl.uniform1i(u_Flag, true);
-		triangleMatrix.setTranslate(0.5, 0.5, 0.0);
+		triangleMatrix.setTranslate(0.3, 0.5, 0.0);
 		triangleMatrix.scale(0.5,0.5,1);
 		triangleMatrix.rotate(ANGLE,0,0,1);
 		gl.uniformMatrix4fv(u_ModelMatrix, false, triangleMatrix.elements);
-		gl.drawArrays(gl.TRIANGLES, 0, triangle.n);
+		gl.drawArrays(gl.TRIANGLES, 0, triangle);
 	
 		//gradient square
-		gl.bindBuffer(gl.ARRAY_BUFFER, gradSquare.buffer); //get data from gradient buffer
+		var gradSquare = initgradSquareBuffers(gl);
 		gl.enableVertexAttribArray(a_Color);
-		gl.vertexAttribPointer(a_Position, 2, gl.FLOAT, false, 20, 0);
-		gl.vertexAttribPointer(a_Color,    3, gl.FLOAT, false, 20, 8);
-		gl.enableVertexAttribArray(a_Color);  
 		gl.uniform1i(u_Flag, true);           
-		gradSquareMatrix.setTranslate(-0.5, 0.5, 0.0);
+		gradSquareMatrix.setTranslate(-0.3, 0.5, 0.0);
 		gradSquareMatrix.scale(0.5, 0.5, 1);
 		gradSquareMatrix.rotate(ANGLE,0,0,1);
 		gl.uniformMatrix4fv(u_ModelMatrix, false, gradSquareMatrix.elements);
-		gl.drawArrays(gl.TRIANGLE_FAN, 0, gradSquare.n);
+		gl.drawArrays(gl.TRIANGLE_FAN, 0, gradSquare);
 
 	};
 	tick();
@@ -179,7 +170,7 @@ function initTriangleBuffers(gl) {
   // Unbind the buffer object
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-  return {buffer: vertexColorBuffer, n:n};
+  return n;
 }
 
 
@@ -213,15 +204,15 @@ function initSquareBuffers(gl) {
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
 
-  return {buffer: vertexColorBuffer, n:n};
+  return n;
 }
 
 function initgradSquareBuffers(gl) {
   var verticesColors = new Float32Array([
-    -0.5,  0.5,  1.0, 0.0, 0.0,  
-     0.5,  0.5,  0.0, 1.0, 0.0,  
-     0.5, -0.5,  0.0, 0.0, 1.0,   
-    -0.5, -0.5,  1.0, 1.0, 1.0  
+    -0.5,  0.5,  0.0, 0.7, 0.7,  
+     0.5,  0.5, 1.0, 0.0, 1.0,  
+     0.5, -0.5,  1.0, 1.0, 1.0,   
+    -0.5, -0.5,  0.0, 0.0, 1.0  
   ]);
   var n = 4; // The number of vertices
 
@@ -246,7 +237,7 @@ function initgradSquareBuffers(gl) {
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
 
-  return {buffer: vertexColorBuffer, n:n};
+  return n;
 }
 </script>
 
