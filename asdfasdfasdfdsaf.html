@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>Shapes and Lights</title>
+
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/webgl-utils.js"></script>
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/webgl-debug.js"></script>
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/cuon-matrix.js"></script>
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/cuon-utils.js"></script>
+</head>
+
+<body onload="main();">
+
+<!-- The Window that displays graphics. -->
+<canvas id="webgl" width="1200" height="800"></canvas>
+<br>
+
+<!-- Sliders control the position of light 1 -->
+Light X <input type="range" min="-5" max="5" step="0.1" value="-1" id="lightX">
+Light Y <input type="range" min="-5" max="5" step="0.1" value="2"  id="lightY">
+Light Z <input type="range" min="-5" max="5" step="0.1" value="-2" id="lightZ">
+
+<script>
+var VSHADER_SOURCE =
+  `attribute vec4 a_Position; 
+  attribute vec4 a_Color; 
+  attribute vec4 a_Normal; 
+  attribute vec2 a_UV; 
+  uniform mat4 u_ModelMatrix; 
+  uniform mat4 u_ViewMatrix; 
+  uniform mat4 u_ProjMatrix;
+  varying vec4 v_Position;
+  varying vec4 v_Color;
+  varying vec3 v_Normal;
+  varying vec2 v_UV;
+  void main() { 
+    gl_Position = u_ProjMatrix * u_ViewMatrix * u_ModelMatrix * a_Position;
+    v_Position = u_ModelMatrix * a_Position;
+    v_Color = a_Color;
+
+    // Recalculate the normal based on the model matrix.
+    v_Normal = vec3(u_ModelMatrix * vec4(a_Normal.xyz,0.0));
+    v_UV = a_UV;
+  }`;
+
+var FSHADER_SOURCE =
+  `precision mediump float;
+  varying vec4 v_Position; 
+  varying vec4 v_Color; 
+  varying vec3 v_Normal;
+  varying vec2 v_UV;
+  uniform float u_Time; 
+  uniform vec3 u_lightPos;
+  void main() { 
+
+    //Normalize the normal because it is interpolated and not 1.0 in length any more
+    vec3 normal = normalize(v_Normal);
+
+    // Light 1: position comes from the sliders. Light 2: constant position.
+    vec3 lightDirection1 = normalize(u_lightPos - v_Position.xyz);
+    vec3 lightDirection2 = normalize(vec3(1.0,2.0,-2.0) - v_Position.xyz);
+
+    float nDotL1 = max(dot(lightDirection1, normal), 0.0);
+    float nDotL2 = max(dot(lightDirection2, normal), 0.0);
+
+    // Diffuse reflection
+    vec3 lightColor1 = vec3(1.0,1.0,1.0); //White light
+    vec3 diffuse1 = lightColor1 * v_Color.rgb * nDotL1;
+
+    vec3 lightColor2 = vec3(0.8,0.2,0.8); //Purple light
+    vec3 diffuse2 = lightColor2 * v_Color.rgb * nDotL2;
+
+    // Ambient reflection
+    vec3 ambientColor = vec3(0.1,0.1,0.1);
+    vec3 ambient = ambientColor * v_Color.rgb;
+
+    gl_FragColor = vec4(diffuse1 + diffuse2 + ambient, v_Color.a);
+  }`;
+
+//global variables for light position slider
+var X = -1;
+var Y = 2;
+var Z = -2;
+
+function main() {
+  // Set up canvas, WebGL, and shaders.
+  var canvas = document.getElementById('webgl');
+  gl = getWebGLContext(canvas);
+  initShaders(gl, VSHADER_SOURCE, FSHADER_SOURCE);
+  gl.clearColor(.5, .5, .5, 1);
+
+  gl.enable(gl.DEPTH_TEST);
+
+  //Matrices
+  var modelMatrix = new Matrix4();
+  var viewMatrix = new Matrix4();
+  var projMatrix = new Matrix4();
+  var u_ModelMatrix = gl.getUniformLocation(gl.program,'u_ModelMatrix');
+  var u_ViewMatrix = gl.getUniformLocation(gl.program,'u_ViewMatrix');
+  var u_ProjMatrix = gl.getUniformLocation(gl.program,'u_ProjMatrix');
+
+  //Light position uniform
+  var u_lightPos = gl.getUniformLocation(gl.program, 'u_lightPos');
+ 
+  //Time variable in shader.
+  var TIME = 0.0;
+  var u_Time = gl.getUniformLocation(gl.program, 'u_Time');
+  gl.uniform1f(u_Time, 1.0);
+
+  var tick = function(){
+
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    //light position
+    gl.uniform3f(u_lightPos, X, Y, Z);
+
+    //Time
+    TIME += .3;
+    gl.uniform1f(u_Time,TIME);
+
+    //Camera        //Eye x  y   z ,At x y z,Up x y z
+    viewMatrix.setLookAt( 0, 2, -5,    0,0,0,   0,1,0);
+    gl.uniformMatrix4fv(u_ViewMatrix,false,viewMatrix.elements);
+
+    //Viewing Volume
+    projMatrix.setPerspective(30,canvas.width/canvas.height,1,100);
+    gl.uniformMatrix4fv(u_ProjMatrix, false, projMatrix.elements);
+
+    // Sphere
+    n = initSphere(gl, 16);
+    modelMatrix.setScale(0.5, 0.5, 0.5);
+    modelMatrix.translate(2.5,0,0);
+    gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
+    gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_SHORT, 0);
+
+    // Cylinder
+    n = initCylindar(gl, 16);
+    modelMatrix.setScale(0.5, 0.5, 0.5);
+    modelMatrix.translate(-2.5,0,0);
+    gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
+    gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_SHORT, 0);
+
+    // Cone
+    n = initCone(gl, 16);
+    modelMatrix.setScale(0.5, 0.5, 0.5);
+    gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
+    gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_SHORT, 0);
+
+    requestAnimationFrame(tick, canvas);
+  };
+  tick();
+}
+
+function initSphere(gl, stacks) {
+
+  var SPHERE_DIV = stacks; //Slices will be the same as the stacks.
+
+  var i, ai, si, ci;
+  var j, aj, sj, cj;
+  var p1, p2;
+
+  var positions = [];
+  var indices = [];
+  var colors = [];
+  var uvs = [];
+
+  // Generate coordinates
+  for (j = 0; j <= SPHERE_DIV; j++) {
+    aj = j * Math.PI / SPHERE_DIV;
+    sj = Math.sin(aj);
+    cj = Math.cos(aj);
+    for (i = 0; i <= SPHERE_DIV; i++) {
+      ai = i * 2 * Math.PI / SPHERE_DIV;
+      si = Math.sin(ai);
+      ci = Math.cos(ai);
+
+      positions.push(si * sj);  // X
+      positions.push(cj);       // Y
+      positions.push(ci * sj);  // Z
+
+      colors.push(0);
+      colors.push(1);
+      colors.push(0); // Green sphere
+
+      uvs.push(i / SPHERE_DIV); // u in [0,1]
+      uvs.push(j / SPHERE_DIV); // v in [0,1]
+    }
+  }
+
+  // Generate indices
+  for (j = 0; j < SPHERE_DIV; j++) {
+    for (i = 0; i < SPHERE_DIV; i++) {
+      p1 = j * (SPHERE_DIV+1) + i;
+      p2 = p1 + (SPHERE_DIV+1);
+
+      indices.push(p1);
+      indices.push(p2);
+      indices.push(p1 + 1);
+
+      indices.push(p1 + 1);
+      indices.push(p2);
+      indices.push(p2 + 1);
+    }
+  }
+
+  // For a unit sphere the positions are also the normals
+  initArrayBuffer(gl, 'a_Position', new Float32Array(positions), 3);
+  initArrayBuffer(gl, 'a_Normal', new Float32Array(positions), 3);
+  initArrayBuffer(gl, 'a_Color', new Float32Array(colors), 3);
+  initArrayBuffer(gl, 'a_UV', new Float32Array(uvs), 2);
+
+  var indexBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+  return indices.length;
+}
+
+function initCylindar(gl, stacks) {
+
+  var SPHERE_DIV = stacks; //Slices
+  var i, ai, si, ci;
+  var j, sj, cj;
+  var p1, p2;
+
+  var positions = [];
+  var normals = [];
+  var indices = [];
+  var colors = [];
+  var uvs = [];
+
+  // Rows: top center, top edge, side top, side bottom, bottom edge, bottom center
+  var rowR = [0, 1, 1, 1, 1, 0];     // radius of each row
+  var rowY = [1, 1, 1, -1, -1, -1];  // height of each row
+
+  for (j = 0; j <= 5; j++) {
+    sj = rowR[j];
+    cj = rowY[j];
+    for (i = 0; i <= SPHERE_DIV; i++) {
+      ai = i * 2 * Math.PI / SPHERE_DIV;
+      si = Math.sin(ai);
+      ci = Math.cos(ai);
+
+      positions.push(si * sj, cj, ci * sj);
+
+      if (j <= 1)      normals.push(0, 1, 0);     // top cap
+      else if (j <= 3) normals.push(si, 0, ci);   // side
+      else             normals.push(0, -1, 0);    // bottom cap
+
+      colors.push(1, 0, 0); // Red cylinder
+      uvs.push(i / SPHERE_DIV, j / 5);
+    }
+  }
+
+  for (j = 0; j < 5; j++) {
+    for (i = 0; i < SPHERE_DIV; i++) {
+      p1 = j * (SPHERE_DIV+1) + i;
+      p2 = p1 + (SPHERE_DIV+1);
+
+      indices.push(p1, p2, p1 + 1);
+      indices.push(p1 + 1, p2, p2 + 1);
+    }
+  }
+
+  initArrayBuffer(gl, 'a_Position', new Float32Array(positions), 3);
+  initArrayBuffer(gl, 'a_Normal', new Float32Array(normals), 3);
+  initArrayBuffer(gl, 'a_Color', new Float32Array(colors), 3);
+  initArrayBuffer(gl, 'a_UV', new Float32Array(uvs), 2);
+
+  var indexBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+  return indices.length;
+}
+
+function initCone(gl, stacks) {
+
+  var SPHERE_DIV = stacks; //Slices
+  var i, ai, si, ci;
+  var j, sj, cj;
+  var p1, p2;
+
+  var positions = [];
+  var normals = [];
+  var indices = [];
+  var colors = [];
+  var uvs = [];
+
+  // Rows: tip, base edge (side), base edge (cap), base center
+  var rowR = [0, 1, 1, 0];     // radius of each row
+  var rowY = [1, -1, -1, -1];  // height of each row
+
+  for (j = 0; j <= 3; j++) {
+    sj = rowR[j];
+    cj = rowY[j];
+    for (i = 0; i <= SPHERE_DIV; i++) {
+      ai = i * 2 * Math.PI / SPHERE_DIV;
+      si = Math.sin(ai);
+      ci = Math.cos(ai);
+
+      positions.push(si * sj, cj, ci * sj);
+
+      if (j <= 1) normals.push(si * 2, 1, ci * 2);  // slanted side (height 2, radius 1)
+      else        normals.push(0, -1, 0);           // base cap
+
+      colors.push(0, 0, 1); // Blue cone
+      uvs.push(i / SPHERE_DIV, j / 3);
+    }
+  }
+
+  for (j = 0; j < 3; j++) {
+    for (i = 0; i < SPHERE_DIV; i++) {
+      p1 = j * (SPHERE_DIV+1) + i;
+      p2 = p1 + (SPHERE_DIV+1);
+
+      indices.push(p1, p2, p1 + 1);
+      indices.push(p1 + 1, p2, p2 + 1);
+    }
+  }
+
+  initArrayBuffer(gl, 'a_Position', new Float32Array(positions), 3);
+  initArrayBuffer(gl, 'a_Normal', new Float32Array(normals), 3);
+  initArrayBuffer(gl, 'a_Color', new Float32Array(colors), 3);
+  initArrayBuffer(gl, 'a_UV', new Float32Array(uvs), 2);
+
+  var indexBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+  return indices.length;
+}
+
+// Handle buffer object creation and enable in shader.
+function initArrayBuffer(gl, attribute, data, num) {
+  var buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+  var a_attribute = gl.getAttribLocation(gl.program, attribute);
+  gl.vertexAttribPointer(a_attribute, num, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(a_attribute);
+}
+
+var sliderX = document.getElementById("X");
+sliderX.oninput = function() {
+  X = parseFloat(this.value);
+}
+
+var sliderY = document.getElementById("Y");
+sliderY.oninput = function() {
+  Y = parseFloat(this.value);
+}
+
+var sliderZ = document.getElementById("Z");
+sliderZ.oninput = function() {
+  Z = parseFloat(this.value);
+}
+</script>
+
+</body>
+</html>

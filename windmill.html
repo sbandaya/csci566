@@ -73,8 +73,6 @@ var FSHADER_SOURCE =
       float v = cellular(st);
       gl_FragColor = vec4(vec3(u_Color * v),1.0);
     }
-    
-    
   }`;
 
 var perspective = true;
@@ -103,7 +101,7 @@ function main() {
   var u_ViewMatrix = gl.getUniformLocation(gl.program,'u_ViewMatrix');
   var u_ProjMatrix = gl.getUniformLocation(gl.program,'u_ProjMatrix');
   var u_Color = gl.getUniformLocation(gl.program, 'u_Color');
-   var u_Texture = gl.getUniformLocation(gl.program, 'u_Texture')
+  var u_Texture = gl.getUniformLocation(gl.program, 'u_Texture')
   //Get time variable in shader.
   var u_Time = gl.getUniformLocation(gl.program, 'u_Time');
   gl.uniform1f(u_Time, 1.0);
@@ -112,6 +110,7 @@ function main() {
   {
     perspective = !perspective;
   };
+
   var tick = function(){
 
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -120,13 +119,10 @@ function main() {
     TIME += .5;
     gl.uniform1f(u_Time,TIME)
 
-    var lookX = cameraX + Math.sin(cameraAngle);
-    var lookZ = cameraZ + Math.cos(cameraAngle);
-    //Camera        //Eye x  y   z ,At x y z,Up x y z
-    viewMatrix.setLookAt(
-    cameraX, 0.1, cameraZ,
-    lookX, 0, lookZ,
-    0, 1, 0
+    var look_x = Math.sin(angle) + eye_x;
+    var look_z = Math.cos(angle) + eye_z;
+    
+    viewMatrix.setLookAt(eye_x, 0.1, eye_z, look_x, 0, look_z,  0, 1, 0
 );
     if(perspective)
     {
@@ -134,7 +130,7 @@ function main() {
     }
     else
     {
-      projMatrix.setOrtho(-2,2,-2,2,1,100);
+      projMatrix.setOrtho(-1, 1, -1, 1, 1, 100);
     }
     gl.uniformMatrix4fv(u_ViewMatrix,false,viewMatrix.elements);
 
@@ -344,28 +340,26 @@ function initPlane(gl) {
   return n;
 }
 
-
-var cameraX = 0.0;
-var cameraZ = -5.0;
-var cameraAngle = 0.0;
+var eye_x = 0.0;
+var eye_z = -5.0;
+var angle = 0.0;
 
 function forward(){ 
-  cameraX += Math.sin(cameraAngle) * 0.2;
-  cameraZ += Math.cos(cameraAngle) * 0.2;
+  eye_x += Math.sin(angle) * 0.2;
+  eye_z += Math.cos(angle) * 0.2;
 }
 
 function back(){
-  cameraX -= Math.sin(cameraAngle) * 0.2;
-  cameraZ -= Math.cos(cameraAngle) * 0.2;
+  eye_x -= Math.sin(angle) * 0.2;
+  eye_z -= Math.cos(angle) * 0.2;
 }
 
-
 function left(){
-  cameraAngle += 0.2;
+  angle += 0.2;
 }
 
 function right(){
-  cameraAngle -= 0.2;
+  angle -= 0.2;
 }
 
 document.addEventListener('keydown', function (event) 
