@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>Title</title>
+
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/webgl-utils.js"></script>
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/webgl-debug.js"></script>
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/cuon-matrix.js"></script>
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/cuon-utils.js"></script>
+<script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/load-object.js"></script>
+
+<script> 
+var VSHADER_SOURCE =
+  `precision mediump float;
+  attribute vec4 a_Position; 
+  attribute vec4 a_Normal; 
+  attribute vec2 a_UV; 
+  uniform mat4 u_ModelMatrix; 
+  uniform mat4 u_ViewMatrix; 
+  uniform mat4 u_ProjMatrix;
+  varying vec4 v_Position;
+  varying vec3 v_Normal;
+  varying vec2 v_UV;
+  void main() { 
+    gl_Position = u_ProjMatrix * u_ViewMatrix * u_ModelMatrix * a_Position;
+    v_Position = u_ModelMatrix * a_Position;
+
+    // Recalculate the normal based on the model matrix.
+    v_Normal = vec3(u_ModelMatrix * vec4(a_Normal.xyz,0.0));
+    v_UV = a_UV;
+  }`;
+
+var FSHADER_SOURCE =
+  `precision mediump float;
+  uniform mat4 u_ViewMatrix; 
+  varying vec4 v_Position; 
+  varying vec3 v_Normal;
+  varying vec2 v_UV;
+  uniform float u_Time; 
+  uniform sampler2D u_Sampler;
+  void main() { 
+    
+    vec3 ambientColor = vec3(0.3,0.3,0.3);
+    vec3 diffuseColor = vec3(0.7,0.7,0.7);
+    vec3 specularColor = vec3(1.0,1.0,1.0);
+
+    //Normalize the normal because it is interpolated and not 1.0 in length any more
+    vec3 normal = normalize(v_Normal);
+
+    // Calculate dot product of light direction and orientation of a surface (the normal). This gets us "cos(angle)"
+    vec3 lightPos = vec3(-3.0,3.0,3.0);
+    vec3 lightDirection = normalize(lightPos - v_Position.xyz);
+
+    // Calculate diffuse component.
+    float nDotL = max(dot(lightDirection, normal), 0.0);
+    vec3 diffuse = diffuseColor * nDotL;
+   
+    //Phong model for specular component.
+    vec3 toCameraDir = normalize(vec3(0,2,5) - v_Position.xyz);
+    vec3 reflectedLightDir = reflect(-lightDirection, normal);
+    float specularBase = clamp(dot(reflectedLightDir, toCameraDir), 0.0, 1.0);
+    float specularGloss = pow(specularBase, 16.0);
+    vec3 specular = specularColor * specularGloss;
+ 
+    // Calculate ambient reflection
+    vec3 ambient = ambientColor;
+
+    // Sample Texture
+    //vec4 sample = texture2D(u_Sampler, vec2(v_UV.s*4.0, v_UV.t)/2.0); //Stretch width by 4 for torus object
+    vec4 sample = texture2D(u_Sampler, v_UV); //Standard texture sampling
+
+    // Combine components for the final color.
+    gl_FragColor = vec4((diffuse + specular + ambient) * sample.rgb, 1.0);
+  }`;
+
+
+var myRook;
+var myQueen;
+var myPawn;
+function main(){
+    loadJSONResource('rook.json', function(modelErr, modelObj){
+        myRook = modelObj;
+        main2();
+    });
+}
+function main2(){
+    loadJSONResource('queen.json', function(modelErr, modelObj){
+        myQueen = modelObj;
+        main3();
+    });
+}
+function main3(){
+    loadJSONResource('pawn.json', function(modelErr, modelObj){
+        myPawn = modelObj;
+        setTimeout(function(){
+            start();
+        },1000);
+    });
+}
+
+function start() {
+  // Set up canvas, WebGL, and shaders.
+  var canvas = document.getElementById('webgl');
+  var gl = getWebGLContext(canvas);
+  initShaders(gl, VSHADER_SOURCE, FSHADER_SOURCE);
+  gl.clearColor(0,0,0,1);
+
+  //Additional features of WebGL
+  gl.enable(gl.DEPTH_TEST);
+
+  //Load browser extension for better texture filtering
+  gl.anisotropyExt = gl.getExtension("EXT_texture_filter_anisotropic") || gl.getExtension("MOZ_EXT_texture_filter_anisotropic") || gl.getExtension("WEBKIT_EXT_texture_filter_anisotropic");
+
+  //Set up Cube 
+  var rook = initVertexBuffers(gl, myRook);
+  var queen = initVertexBuffers(gl, myQueen);
+  var pawn = initVertexBuffers(gl, myPawn);
+
+  //Matrices
+  var modelMatrix = new Matrix4();
+  var viewMatrix = new Matrix4();
+  var projMatrix = new Matrix4();
+  var u_ModelMatrix = gl.getUniformLocation(gl.program,'u_ModelMatrix');
+  var u_ViewMatrix = gl.getUniformLocation(gl.program,'u_ViewMatrix');
+  var u_ProjMatrix = gl.getUniformLocation(gl.program,'u_ProjMatrix');
+
+  //Load Textures
+  var marble_color = initTextures(gl,'marble_color.jpg', 0);
+  var brick = initTextures(gl,'brick.jpg', 0);
+ 
+  //Get time variable in shader.
+  var TIME = 0.0;
+  var u_Time = gl.getUniformLocation(gl.program, 'u_Time');
+  gl.uniform1f(u_Time, 1.0);
+
+  var tick = function(){
+
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    //Time
+    TIME += .5;
+    gl.uniform1f(u_Time,TIME)
+
+    //Camera        //Eye x  y  z ,At x y z,Up x y z
+    viewMatrix.setLookAt( 0, 2, 5,    0,0,0,   0,1,0);
+    gl.uniformMatrix4fv(u_ViewMatrix,false,viewMatrix.elements);
+
+    //Viewing Volume
+    projMatrix.setPerspective(35,canvas.width/canvas.height,1,100);
+    gl.uniformMatrix4fv(u_ProjMatrix, false, projMatrix.elements);
+
+    ///////Begin Rook Code////////////////////
+        setupBuffers(gl, rook);
+
+        gl.activeTexture(gl.TEXTURE0);
+        if (FLAG == false){
+            gl.bindTexture(gl.TEXTURE_2D, marble_color);
+        }else{
+            gl.bindTexture(gl.TEXTURE_2D, brick);
+        }
+
+        modelMatrix.setTranslate(0,0,0);
+        modelMatrix.scale(20.0,20.0,20.0);
+        modelMatrix.rotate(TIME,1,0,1);
+        gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
+        gl.drawElements(gl.TRIANGLES, rook.numIndices, rook.indexBuffer.type, 0);
+    ///////End Rook //////////////////////////
+
+    ///////Begin Queen Code////////////////////
+        setupBuffers(gl, queen);
+
+        gl.activeTexture(gl.TEXTURE0);
+        if (FLAG == false){
+            gl.bindTexture(gl.TEXTURE_2D, marble_color);
+        }else{
+            gl.bindTexture(gl.TEXTURE_2D, brick);
+        }
+
+        modelMatrix.setTranslate(-1.2,0,0);
+        modelMatrix.scale(20,20,20);
+        modelMatrix.rotate(TIME,1,0,1);
+        gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
+        gl.drawElements(gl.TRIANGLES, queen.numIndices, queen.indexBuffer.type, 0);
+
+    ///////End Queen //////////////////////////
+
+    ///////Begin pawn Code////////////////////
+        setupBuffers(gl, pawn);
+
+        gl.activeTexture(gl.TEXTURE0);
+        if (FLAG == false){
+            gl.bindTexture(gl.TEXTURE_2D, marble_color);
+        }else{
+            gl.bindTexture(gl.TEXTURE_2D, brick);
+        }
+        modelMatrix.setTranslate(1.2,-0.2,0);
+        modelMatrix.scale(20,20,20);
+        modelMatrix.rotate(TIME,1,0,1);
+        gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
+        gl.drawElements(gl.TRIANGLES, pawn.numIndices, pawn.indexBuffer.type, 0);
+    ///////End pawn //////////////////////////
+
+    requestAnimationFrame(tick, canvas);
+  };
+  tick();
+}
+
+function initVertexBuffers(gl, myModel) {
+    console.log(myModel);
+
+    var vertices = new Float32Array(myModel.meshes[0].vertices);
+    var texCoords = new Float32Array(myModel.meshes[0].texturecoords[0]);
+    var normals = new Float32Array(myModel.meshes[0].normals);
+    var indices = new Uint16Array([].concat.apply([], myModel.meshes[0].faces));
+    var o = new Object(); // Utilize Object to to return multiple buffer objects together
+
+    // Write vertex information to buffer object
+    o.vertexBuffer = initArrayBufferForLaterUse(gl, vertices, 3, gl.FLOAT);
+    o.texCoordBuffer = initArrayBufferForLaterUse(gl, texCoords, 2, gl.FLOAT);
+    o.normalBuffer = initArrayBufferForLaterUse(gl, normals, 3, gl.FLOAT);
+    o.indexBuffer = initElementArrayBufferForLaterUse(gl, indices, gl.UNSIGNED_SHORT);
+    o.numIndices = indices.length;
+
+    // Unbind the buffer object
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+    return o;
+}
+
+function setupBuffers(gl, o) {
+    var a_Position = gl.getAttribLocation(gl.program,'a_Position');
+    var a_Normal = gl.getAttribLocation(gl.program,'a_Normal');
+    var a_TexCoord = gl.getAttribLocation(gl.program,'a_UV');
+    // Assign the buffer objects and enable the assignment
+    initAttributeVariable(gl, a_Position, o.vertexBuffer);  
+    initAttributeVariable(gl, a_Normal, o.normalBuffer);  
+    initAttributeVariable(gl, a_TexCoord, o.texCoordBuffer);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, o.indexBuffer); 
+}
+
+// Assign the buffer objects and enable the assignment
+function initAttributeVariable(gl, a_attribute, buffer) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.vertexAttribPointer(a_attribute, buffer.num, buffer.type, false, 0, 0);
+    gl.enableVertexAttribArray(a_attribute);
+}
+
+function initElementArrayBufferForLaterUse(gl, data, type) {
+    var buffer = gl.createBuffer();  // Create a buffer object
+    // Write date into the buffer object
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    buffer.type = type;
+    return buffer;
+}
+
+function initArrayBufferForLaterUse(gl, data, num, type) {
+    var buffer = gl.createBuffer();   // Create a buffer object
+    // Write data into the buffer object
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    // Keep the information necessary to assign to the attribute variable later
+    buffer.num = num;
+    buffer.type = type;
+    return buffer;
+}
+
+function initTextures(gl, imSrc, texUnit) {
+
+    var texture = gl.createTexture();   // Create a texture object
+    var image = new Image();  // Create a image object
+
+    // Register the event handler to be called when image loading is completed
+    image.onload = function() {
+        // Write the image data to texture object
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);  // Flip the image Y coordinate
+        if(texUnit == 0){
+            gl.activeTexture(gl.TEXTURE0);
+        }
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        let max = gl.getParameter(gl.anisotropyExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+        gl.texParameterf(gl.TEXTURE_2D, gl.anisotropyExt.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(4, max));
+        gl.generateMipmap(gl.TEXTURE_2D);
+
+
+        // Pass the texure unit 0 to u_Sampler
+        if(texUnit == 0){
+            u_Sampler = gl.getUniformLocation(gl.program, 'u_Sampler');
+            gl.uniform1i(u_Sampler, 0);
+        }
+        gl.bindTexture(gl.TEXTURE_2D, null); // Unbind texture
+    };
+    // Tell the browser to load an Image
+    image.src = imSrc;
+    return texture;
+}
+
+//Button operations
+var FLAG = false;
+function action(){
+      FLAG = 1 - FLAG;
+}
+
+</script>
+
+</head>
+
+<!-- When page loads, call main() in Javascript. -->
+<body onload="main();">
+
+<!-- The Window that displays graphics. -->
+<canvas id="webgl" width="400" height="400"></canvas>
+<br> <!-- Newline -->
+
+<!-- Pressing this button calls function action()" in the
+Javascript of the script tag. -->
+<button type="button" onclick="action()">Button</button>
+
+</body>
+</html>
