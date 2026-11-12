@@ -147,7 +147,7 @@ function main() {
   normalProgram.u_ShadowMap = gl.getUniformLocation(normalProgram,'u_ShadowMap');
   gl.useProgram(normalProgram);
   gl.program = normalProgram;
-    gl.uniform1i(gl.getUniformLocation(normalProgram, 'u_Skybox'), 2);
+  gl.uniform1i(gl.getUniformLocation(normalProgram, 'u_Skybox'), 2);
 
   // Initialize framebuffer object (FBO)
   var fbo = initFramebufferObject(gl);
@@ -435,7 +435,7 @@ function initCube(gl) {
 function loadTexture(gl, texture, u_Sampler, image) {
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1); // Flip the image's y axis
   // Enable texture unit0 and bind texture object to target
-  gl.activeTexture(gl.TEXTURE0);
+  gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D, texture);
 
   // Set the texture parameters
@@ -451,7 +451,7 @@ function loadTexture(gl, texture, u_Sampler, image) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.generateMipmap(gl.TEXTURE_2D);
-  gl.uniform1i(u_Sampler, 0);
+  gl.uniform1i(u_Sampler, 1);
 }
 
 function initTextures(gl) {

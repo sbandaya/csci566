@@ -11,17 +11,34 @@
 <script src="https://www.ecst.csuchico.edu/~oal-saadi/Graphics/lib/load-object.js"></script>
 
 <script> 
+var SHADOW_VSHADER_SOURCE =
+  `attribute vec4 a_Position;
+  uniform mat4 u_MvpMatrix;
+  void main() {
+    gl_Position = u_MvpMatrix * a_Position;
+  }`;
+
+var SHADOW_FSHADER_SOURCE =
+  `precision mediump float;
+  void main() {
+    gl_FragColor = vec4(gl_FragCoord.z, 0.0, 0.0, 0.0); // Write the z-value in R
+  }`;
+  
 var VSHADER_SOURCE =
   `precision mediump float;
   attribute vec4 a_Position; 
-  attribute vec4 a_Normal; 
+  attribute vec3 a_Normal; 
+  attribute vec3 a_Tangent; 
+  attribute vec3 a_Bitangent; 
   attribute vec2 a_UV; 
   uniform mat4 u_ModelMatrix; 
   uniform mat4 u_ViewMatrix; 
   uniform mat4 u_ProjMatrix;
+  uniform mediump int u_Mode;
   varying vec4 v_Position;
   varying vec3 v_Normal;
   varying vec2 v_UV;
+  varying mat3 v_TBN;
   void main() { 
     gl_Position = u_ProjMatrix * u_ViewMatrix * u_ModelMatrix * a_Position;
     v_Position = u_ModelMatrix * a_Position;
@@ -29,6 +46,17 @@ var VSHADER_SOURCE =
     // Recalculate the normal based on the model matrix.
     v_Normal = vec3(u_ModelMatrix * vec4(a_Normal.xyz,0.0));
     v_UV = a_UV;
+
+    vec3 T = normalize((u_ModelMatrix * vec4(a_Tangent,   0.0)).xyz);
+    vec3 B = normalize((u_ModelMatrix * vec4(a_Bitangent, 0.0)).xyz);
+    vec3 N = normalize((u_ModelMatrix * vec4(a_Normal,    0.0)).xyz);
+    mat3 TBN = mat3(T, B, N);
+    v_TBN = TBN;
+
+    if(u_Mode == 0)
+    {
+      v_Normal = normalize(a_Position.xyz);
+    }
   }`;
 
 var FSHADER_SOURCE =
@@ -37,8 +65,14 @@ var FSHADER_SOURCE =
   varying vec4 v_Position; 
   varying vec3 v_Normal;
   varying vec2 v_UV;
+  varying mat3 v_TBN;
+  varying vec4 v_PositionFromLight;
   uniform float u_Time; 
   uniform sampler2D u_Sampler;
+  uniform sampler2D u_NormalMap;
+  uniform samplerCube u_Skybox; 
+  uniform vec3 u_EyePos;
+  uniform int u_Mode;  
   void main() { 
     
     vec3 ambientColor = vec3(0.3,0.3,0.3);
@@ -47,6 +81,12 @@ var FSHADER_SOURCE =
 
     //Normalize the normal because it is interpolated and not 1.0 in length any more
     vec3 normal = normalize(v_Normal);
+
+    //vec3 newNormal = texture2D(u_NormalMap, vec2(v_UV.s*4.0, v_UV.t)/2.0).rgb; //Strech for torus object
+    vec3 newNormal = texture2D(u_NormalMap, v_UV).rgb; //Standard bump map
+    newNormal = normalize(newNormal * 2.0 - 1.0);
+    newNormal.xyz = normalize(v_TBN * newNormal);
+    normal = newNormal;
 
     // Calculate dot product of light direction and orientation of a surface (the normal). This gets us "cos(angle)"
     vec3 lightPos = vec3(-3.0,3.0,3.0);
@@ -57,7 +97,7 @@ var FSHADER_SOURCE =
     vec3 diffuse = diffuseColor * nDotL;
    
     //Phong model for specular component.
-    vec3 toCameraDir = normalize(vec3(0,2,5) - v_Position.xyz);
+    vec3 toCameraDir = normalize(u_EyePos - v_Position.xyz);
     vec3 reflectedLightDir = reflect(-lightDirection, normal);
     float specularBase = clamp(dot(reflectedLightDir, toCameraDir), 0.0, 1.0);
     float specularGloss = pow(specularBase, 16.0);
@@ -67,30 +107,46 @@ var FSHADER_SOURCE =
     vec3 ambient = ambientColor;
 
     // Sample Texture
-    //vec4 sample = texture2D(u_Sampler, vec2(v_UV.s*4.0, v_UV.t)/2.0); //Stretch width by 4 for torus object
+    //vec4 sample = texture2D(u_Sampler, vec2(v_UV.s*4.0, v_UV.t)/2.0); //Stretch for torus object
     vec4 sample = texture2D(u_Sampler, v_UV); //Standard texture sampling
 
     // Combine components for the final color.
     gl_FragColor = vec4((diffuse + specular + ambient) * sample.rgb, 1.0);
+
+    if(u_Mode ==0)
+    {
+        gl_FragColor = textureCube(u_Skybox,v_Normal);
+    }
   }`;
 
 
 var myRook;
 var myQueen;
 var myPawn;
+var myBoard;
+
 function main(){
+    loadJSONResource('board.json', function(modelErr, modelObj){
+        myBoard = modelObj;
+        loadRook();
+    });
+}
+
+function loadRook(){
     loadJSONResource('rook.json', function(modelErr, modelObj){
         myRook = modelObj;
-        main2();
+        loadQueen();
     });
 }
-function main2(){
+
+function loadQueen(){
     loadJSONResource('queen.json', function(modelErr, modelObj){
         myQueen = modelObj;
-        main3();
+        loadPawn();
     });
 }
-function main3(){
+
+function loadPawn(){
     loadJSONResource('pawn.json', function(modelErr, modelObj){
         myPawn = modelObj;
         setTimeout(function(){
@@ -116,7 +172,8 @@ function start() {
   var rook = initVertexBuffers(gl, myRook);
   var queen = initVertexBuffers(gl, myQueen);
   var pawn = initVertexBuffers(gl, myPawn);
-
+  var board = initVertexBuffers(gl, myBoard);
+  var cube = initCube(gl);
   //Matrices
   var modelMatrix = new Matrix4();
   var viewMatrix = new Matrix4();
@@ -124,11 +181,16 @@ function start() {
   var u_ModelMatrix = gl.getUniformLocation(gl.program,'u_ModelMatrix');
   var u_ViewMatrix = gl.getUniformLocation(gl.program,'u_ViewMatrix');
   var u_ProjMatrix = gl.getUniformLocation(gl.program,'u_ProjMatrix');
+  var u_EyePos = gl.getUniformLocation(gl.program,'u_EyePos');
+  var u_Mode = gl.getUniformLocation(gl.program,'u_Mode');
+  var u_MvpMatrixFromLight = gl.getUniformLocation(gl.program,'u_MvpMatrixFromLight');
 
   //Load Textures
-  var marble_color = initTextures(gl,'marble_color.jpg', 0);
-  var brick = initTextures(gl,'brick.jpg', 0);
- 
+  var board_color   = initTextures(gl,'board_color.png', 0);
+  var board_normal  = initTextures(gl,'board_normal.png', 1);
+  var pieces_color  = initTextures(gl,'pieces_color.png', 0);
+  var pieces_normal = initTextures(gl,'pieces_normal.png', 1);
+  var sky = loadCubeMap(gl);
   //Get time variable in shader.
   var TIME = 0.0;
   var u_Time = gl.getUniformLocation(gl.program, 'u_Time');
@@ -139,47 +201,57 @@ function start() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     //Time
-    TIME += .5;
+    TIME += .004;
     gl.uniform1f(u_Time,TIME)
-
+    var eye_x = Math.sin(TIME) * 1.6
+    var eye_z = Math.cos(TIME) * 1.6
     //Camera        //Eye x  y  z ,At x y z,Up x y z
-    viewMatrix.setLookAt( 0, 2, 5,    0,0,0,   0,1,0);
+    viewMatrix.setLookAt( eye_x , 1.0, eye_z,    0.0,0.0,0.0,   0,1,0);
+    gl.uniform3f(u_EyePos,eye_x , 1.0, eye_z);
     gl.uniformMatrix4fv(u_ViewMatrix,false,viewMatrix.elements);
 
     //Viewing Volume
-    projMatrix.setPerspective(35,canvas.width/canvas.height,1,100);
+    projMatrix.setPerspective(90,canvas.width/canvas.height,1,100);
     gl.uniformMatrix4fv(u_ProjMatrix, false, projMatrix.elements);
+
+    ///////Begin Skybox Code////////////////////
+        var a_Position = gl.getAttribLocation(gl.program,'a_Position');
+        gl.bindBuffer(gl.ARRAY_BUFFER, cube.vertexBuffer);
+        gl.vertexAttribPointer(a_Position, 3, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(a_Position);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cube.indexBuffer);
+
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_CUBE_MAP, sky);
+
+        modelMatrix.setTranslate(eye_x, 0.5, eye_z);
+        modelMatrix.scale(50,50,50);
+        gl.uniform1i(u_Mode,0);
+        gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
+        gl.depthMask(false);
+        gl.drawElements(gl.TRIANGLES, cube.numIndices, gl.UNSIGNED_SHORT, 0);
+        gl.depthMask(true);
+    ///////End Skybox //////////////////////////
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, pieces_color);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, pieces_normal);
 
     ///////Begin Rook Code////////////////////
         setupBuffers(gl, rook);
-
-        gl.activeTexture(gl.TEXTURE0);
-        if (FLAG == false){
-            gl.bindTexture(gl.TEXTURE_2D, marble_color);
-        }else{
-            gl.bindTexture(gl.TEXTURE_2D, brick);
-        }
-
         modelMatrix.setTranslate(0,0,0);
-        modelMatrix.scale(20.0,20.0,20.0);
-        modelMatrix.rotate(TIME,1,0,1);
+        modelMatrix.scale(10.0,10.0,10.0);
+        gl.uniform1i(u_Mode,1);
         gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
         gl.drawElements(gl.TRIANGLES, rook.numIndices, rook.indexBuffer.type, 0);
     ///////End Rook //////////////////////////
 
     ///////Begin Queen Code////////////////////
         setupBuffers(gl, queen);
-
-        gl.activeTexture(gl.TEXTURE0);
-        if (FLAG == false){
-            gl.bindTexture(gl.TEXTURE_2D, marble_color);
-        }else{
-            gl.bindTexture(gl.TEXTURE_2D, brick);
-        }
-
-        modelMatrix.setTranslate(-1.2,0,0);
-        modelMatrix.scale(20,20,20);
-        modelMatrix.rotate(TIME,1,0,1);
+        modelMatrix.setTranslate(-0.6,0,0);
+        modelMatrix.scale(10,10,10);
+        gl.uniform1i(u_Mode,1);
         gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
         gl.drawElements(gl.TRIANGLES, queen.numIndices, queen.indexBuffer.type, 0);
 
@@ -187,19 +259,26 @@ function start() {
 
     ///////Begin pawn Code////////////////////
         setupBuffers(gl, pawn);
-
-        gl.activeTexture(gl.TEXTURE0);
-        if (FLAG == false){
-            gl.bindTexture(gl.TEXTURE_2D, marble_color);
-        }else{
-            gl.bindTexture(gl.TEXTURE_2D, brick);
-        }
-        modelMatrix.setTranslate(1.2,-0.2,0);
-        modelMatrix.scale(20,20,20);
-        modelMatrix.rotate(TIME,1,0,1);
+        modelMatrix.setTranslate(0.6,-0.2,0);
+        modelMatrix.scale(10,10,10);
+        gl.uniform1i(u_Mode,1);
         gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
         gl.drawElements(gl.TRIANGLES, pawn.numIndices, pawn.indexBuffer.type, 0);
+
     ///////End pawn //////////////////////////
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, board_color);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, board_normal);
+    ///////Begin board Code////////////////////
+        setupBuffers(gl, board);
+        modelMatrix.setTranslate(0,-0.5,0);
+        modelMatrix.scale(5,5,5);
+        gl.uniform1i(u_Mode,1);
+        gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
+        gl.drawElements(gl.TRIANGLES, board.numIndices, board.indexBuffer.type, 0);
+    ///////End board //////////////////////////
 
     requestAnimationFrame(tick, canvas);
   };
@@ -212,6 +291,8 @@ function initVertexBuffers(gl, myModel) {
     var vertices = new Float32Array(myModel.meshes[0].vertices);
     var texCoords = new Float32Array(myModel.meshes[0].texturecoords[0]);
     var normals = new Float32Array(myModel.meshes[0].normals);
+    var tangents = new Float32Array(myModel.meshes[0].tangents);
+    var bitangents = new Float32Array(myModel.meshes[0].bitangents);
     var indices = new Uint16Array([].concat.apply([], myModel.meshes[0].faces));
     var o = new Object(); // Utilize Object to to return multiple buffer objects together
 
@@ -219,6 +300,8 @@ function initVertexBuffers(gl, myModel) {
     o.vertexBuffer = initArrayBufferForLaterUse(gl, vertices, 3, gl.FLOAT);
     o.texCoordBuffer = initArrayBufferForLaterUse(gl, texCoords, 2, gl.FLOAT);
     o.normalBuffer = initArrayBufferForLaterUse(gl, normals, 3, gl.FLOAT);
+    o.tangentBuffer = initArrayBufferForLaterUse(gl, tangents, 3, gl.FLOAT);
+    o.bitangentBuffer = initArrayBufferForLaterUse(gl, bitangents, 3, gl.FLOAT);
     o.indexBuffer = initElementArrayBufferForLaterUse(gl, indices, gl.UNSIGNED_SHORT);
     o.numIndices = indices.length;
 
@@ -233,10 +316,14 @@ function setupBuffers(gl, o) {
     var a_Position = gl.getAttribLocation(gl.program,'a_Position');
     var a_Normal = gl.getAttribLocation(gl.program,'a_Normal');
     var a_TexCoord = gl.getAttribLocation(gl.program,'a_UV');
+    var a_Tangent = gl.getAttribLocation(gl.program,'a_Tangent');
+    var a_Bitangent = gl.getAttribLocation(gl.program,'a_Bitangent');
     // Assign the buffer objects and enable the assignment
     initAttributeVariable(gl, a_Position, o.vertexBuffer);  
     initAttributeVariable(gl, a_Normal, o.normalBuffer);  
     initAttributeVariable(gl, a_TexCoord, o.texCoordBuffer);
+    initAttributeVariable(gl, a_Tangent, o.tangentBuffer);
+    initAttributeVariable(gl, a_Bitangent, o.bitangentBuffer);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, o.indexBuffer); 
 }
 
@@ -278,6 +365,8 @@ function initTextures(gl, imSrc, texUnit) {
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);  // Flip the image Y coordinate
         if(texUnit == 0){
             gl.activeTexture(gl.TEXTURE0);
+        }else{
+            gl.activeTexture(gl.TEXTURE1);
         }
         gl.bindTexture(gl.TEXTURE_2D, texture);
 
@@ -291,16 +380,88 @@ function initTextures(gl, imSrc, texUnit) {
         gl.texParameterf(gl.TEXTURE_2D, gl.anisotropyExt.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(4, max));
         gl.generateMipmap(gl.TEXTURE_2D);
 
-
         // Pass the texure unit 0 to u_Sampler
         if(texUnit == 0){
             u_Sampler = gl.getUniformLocation(gl.program, 'u_Sampler');
             gl.uniform1i(u_Sampler, 0);
+        }else{
+            u_NormalMap = gl.getUniformLocation(gl.program, 'u_NormalMap');
+            gl.uniform1i(u_NormalMap, 1);
         }
         gl.bindTexture(gl.TEXTURE_2D, null); // Unbind texture
     };
     // Tell the browser to load an Image
     image.src = imSrc;
+    return texture;
+}
+
+function initCube(gl) {
+  var vertices = new Float32Array([
+     1.0, 1.0, 1.0,  -1.0, 1.0, 1.0,  -1.0,-1.0, 1.0,   1.0,-1.0, 1.0,  // front
+     1.0, 1.0, 1.0,   1.0,-1.0, 1.0,   1.0,-1.0,-1.0,   1.0, 1.0,-1.0,  // right
+     1.0, 1.0, 1.0,   1.0, 1.0,-1.0,  -1.0, 1.0,-1.0,  -1.0, 1.0, 1.0,  // up
+    -1.0, 1.0, 1.0,  -1.0, 1.0,-1.0,  -1.0,-1.0,-1.0,  -1.0,-1.0, 1.0,  // left
+    -1.0,-1.0,-1.0,   1.0,-1.0,-1.0,   1.0,-1.0, 1.0,  -1.0,-1.0, 1.0,  // down
+     1.0,-1.0,-1.0,  -1.0,-1.0,-1.0,  -1.0, 1.0,-1.0,   1.0, 1.0,-1.0   // back
+  ]);
+  var indices = new Uint16Array([
+     0, 1, 2,   0, 2, 3,
+     4, 5, 6,   4, 6, 7,
+     8, 9,10,   8,10,11,
+    12,13,14,  12,14,15,
+    16,17,18,  16,18,19,
+    20,21,22,  20,22,23
+  ]);
+  var o = new Object();
+  o.vertexBuffer = initArrayBufferForLaterUse(gl, vertices, 3, gl.FLOAT);
+  o.indexBuffer  = initElementArrayBufferForLaterUse(gl, indices, gl.UNSIGNED_SHORT);
+  o.numIndices   = indices.length;
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+  return o;
+}
+
+function initArrayBuffer(gl, attribute, data, num) {
+  var buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+  var a_attribute = gl.getAttribLocation(gl.program, attribute);
+  gl.vertexAttribPointer(a_attribute, num, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(a_attribute);
+}
+
+function loadCubeMap(gl) {
+    var texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    
+    var faces = [["px.png",  gl.TEXTURE_CUBE_MAP_POSITIVE_X],
+                 ["nx.png",   gl.TEXTURE_CUBE_MAP_NEGATIVE_X],
+                 ["py.png",    gl.TEXTURE_CUBE_MAP_POSITIVE_Y],
+                 ["ny.png", gl.TEXTURE_CUBE_MAP_NEGATIVE_Y],
+                 ["pz.png",  gl.TEXTURE_CUBE_MAP_POSITIVE_Z],
+                 ["nz.png",   gl.TEXTURE_CUBE_MAP_NEGATIVE_Z]];
+                 
+    for (var i = 0; i < faces.length; i++) {
+        var face = faces[i][1];
+        var image = new Image();
+        image.onload = function(texture, face, image) {
+            return function() {
+                gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+                
+                gl.activeTexture(gl.TEXTURE2); //Set unit for Skybox
+                gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
+                gl.texImage2D(face, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+                var u_Skybox = gl.getUniformLocation(gl.program, 'u_Skybox');
+                gl.uniform1i(u_Skybox, 2);
+                //gl.bindTexture(gl.TEXTURE_CUBE_MAP, null);
+            }
+        } (texture, face, image);
+        image.src = faces[i][0];
+    }
     return texture;
 }
 
@@ -318,7 +479,7 @@ function action(){
 <body onload="main();">
 
 <!-- The Window that displays graphics. -->
-<canvas id="webgl" width="400" height="400"></canvas>
+<canvas id="webgl" width="1600" height="900"></canvas>
 <br> <!-- Newline -->
 
 <!-- Pressing this button calls function action()" in the
