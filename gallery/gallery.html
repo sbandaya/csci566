@@ -57,6 +57,10 @@ var VSHADER_SOURCE =
     {
       v_Normal = normalize(a_Position.xyz);
     }
+    else
+    {
+      v_Normal = vec3(u_ModelMatrix * vec4(a_Normal.xyz,0.0));
+    }
   }`;
 
 var FSHADER_SOURCE =
@@ -115,7 +119,16 @@ var FSHADER_SOURCE =
 
     if(u_Mode ==0)
     {
+        //skybox
         gl_FragColor = textureCube(u_Skybox,v_Normal);
+    }
+    if(u_Mode == 2)
+    {
+      //cubemap reflection
+      vec3 I = normalize(v_Position.xyz - u_EyePos); //Must match camera position.
+      vec3 R = reflect(I, v_Normal);
+      vec4 reflect = textureCube(u_Skybox, R);
+      gl_FragColor = vec4(reflect);
     }
   }`;
 
@@ -242,7 +255,7 @@ function start() {
         setupBuffers(gl, rook);
         modelMatrix.setTranslate(0,0,0);
         modelMatrix.scale(10.0,10.0,10.0);
-        gl.uniform1i(u_Mode,1);
+        gl.uniform1i(u_Mode,2);
         gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
         gl.drawElements(gl.TRIANGLES, rook.numIndices, rook.indexBuffer.type, 0);
     ///////End Rook //////////////////////////
@@ -251,7 +264,7 @@ function start() {
         setupBuffers(gl, queen);
         modelMatrix.setTranslate(-0.6,0,0);
         modelMatrix.scale(10,10,10);
-        gl.uniform1i(u_Mode,1);
+        gl.uniform1i(u_Mode,2);
         gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
         gl.drawElements(gl.TRIANGLES, queen.numIndices, queen.indexBuffer.type, 0);
 
@@ -261,7 +274,7 @@ function start() {
         setupBuffers(gl, pawn);
         modelMatrix.setTranslate(0.6,-0.2,0);
         modelMatrix.scale(10,10,10);
-        gl.uniform1i(u_Mode,1);
+        gl.uniform1i(u_Mode,2);
         gl.uniformMatrix4fv(u_ModelMatrix,false,modelMatrix.elements);
         gl.drawElements(gl.TRIANGLES, pawn.numIndices, pawn.indexBuffer.type, 0);
 
